@@ -1,0 +1,73 @@
+# --- Unity Folders ---
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+.utmp/
+*.log
+
+# --- Documentation & Office ---
+*.pdf
+*.doc
+*.docx
+*.pptx
+*.tmp
+~$*
+
+# --- IDEs & Tools ---
+.vs/
+.idea/
+.vscode/
+.gradle/
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+*.DotSettings.user
+*.pidb
+
+# --- Unity Generated & Recovery ---
+sysinfo.txt
+[Aa]ssets/_Recovery*
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+mono_crash.*
+
+# --- Addressables & StreamingAssets ---
+/ServerData
+/[Aa]ssets/StreamingAssets/aa*
+/[Aa]ssets/AddressableAssetsData/link.xml*
+/[Aa]ssets/Addressables_Temp*
+/[Aa]ssets/AddressableAssetsData/*/*.bin*
+
+# --- Visual Scripting & Tests ---
+/[Aa]ssets/Unity.VisualScripting.Generated/*
+InitTestScene*.unity*
+/[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
+
+# --- OS Specific & Other ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+*~
+*.blend1
+*.blend1.meta
+
+# --- Build Artifacts ---
+*.apk
+*.aab
+*.unitypackage
+*.exe
+*.app
+crashlytics-build.properties
