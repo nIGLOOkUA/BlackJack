@@ -21,11 +21,13 @@
 
 # --- IDEs & Tools ---
 .vs/
+.vsconfig
 .idea/
 .vscode/
 .gradle/
 *.csproj
 *.sln
+*.slnx
 *.suo
 *.user
 *.userprefs
