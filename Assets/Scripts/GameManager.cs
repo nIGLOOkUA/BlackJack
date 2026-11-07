@@ -25,9 +25,20 @@ namespace Blackjack
         [SerializeField] private GameObject cardPrefab;
         [SerializeField] private Sprite cardBackSprite;
 
+        [Header("Правила")]
+        [Tooltip("Якщо true, дилер перевіряє закриту карту, коли відкрита карта 10/В/Д/К (американські правила).")]
+        [SerializeField] private bool dealerPeeksOnTen = true;
+        [Tooltip("Виплата за природний Блекджек: 1.5 = 3:2, 1.2 = 6:5.")]
+        [SerializeField] private float blackjackPayoutRatio = 1.5f;
+
         private float startingBalance = 1000f;
         private float currentBalance;
+
+        // currentBet - загальна сума ставок на столі (для UI).
+        // bet1 / bet2 - ставки окремих рук (bet2 > 0 лише після спліту).
         private float currentBet;
+        private float bet1;
+        private float bet2;
         private float insuranceBet = 0f;
         private float actionDelay = 0.5f;
 
@@ -46,8 +57,13 @@ namespace Blackjack
 
         private void Awake()
         {
-            if (Instance != null && Instance != this) Destroy(gameObject);
-            else Instance = this;
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            Instance = this;
+
             if (PlayerPrefs.HasKey(BalanceKey)) currentBalance = PlayerPrefs.GetFloat(BalanceKey);
             else currentBalance = startingBalance;
         }
@@ -71,6 +87,10 @@ namespace Blackjack
             }
         }
 
+        // ------------------------------------------------------------------
+        // Ставки
+        // ------------------------------------------------------------------
+
         public void StartBettingPhase()
         {
             ChangeState(GameState.Betting);
@@ -78,6 +98,8 @@ namespace Blackjack
             isSplitMode = false;
             activeHandIndex = 0;
             insuranceBet = 0f;
+            bet1 = 0f;
+            bet2 = 0f;
             OnSplitStateChanged?.Invoke(false);
             currentBet = 0;
             OnBalanceChanged?.Invoke(currentBalance, currentBet);
@@ -86,6 +108,7 @@ namespace Blackjack
 
         public void PlaceBet(ChipData chip)
         {
+            if (CurrentState != GameState.Betting) return;
             if (currentBalance >= chip.value)
             {
                 currentBalance -= chip.value;
@@ -96,6 +119,7 @@ namespace Blackjack
 
         public void ClearBet()
         {
+            if (CurrentState != GameState.Betting) return;
             if (currentBet == 0) return;
             currentBalance += currentBet;
             currentBet = 0;
@@ -104,8 +128,18 @@ namespace Blackjack
 
         public void ConfirmBet()
         {
-            if (currentBet > 0) StartDealingPhase();
+            if (CurrentState != GameState.Betting) return;
+            if (currentBet > 0)
+            {
+                bet1 = currentBet;
+                bet2 = 0f;
+                StartDealingPhase();
+            }
         }
+
+        // ------------------------------------------------------------------
+        // Роздача
+        // ------------------------------------------------------------------
 
         private void StartDealingPhase()
         {
@@ -136,9 +170,15 @@ namespace Blackjack
             if (dealStep < 4) timer = actionDelay;
         }
 
+        // ------------------------------------------------------------------
+        // Страховка
+        // ------------------------------------------------------------------
+
         public void OnInsuranceAccept()
         {
-            float cost = currentBet / 2f;
+            if (CurrentState != GameState.Insurance) return;
+
+            float cost = bet1 / 2f;
             if (currentBalance >= cost)
             {
                 currentBalance -= cost;
@@ -151,50 +191,108 @@ namespace Blackjack
 
         public void OnInsuranceDecline()
         {
+            if (CurrentState != GameState.Insurance) return;
+
             insuranceBet = 0f;
             CheckInsuranceOutcome();
         }
 
         private void CheckInsuranceOutcome()
         {
-            if (CalculateHandValue(dealerHand) == 21)
+            if (IsBlackjack(dealerHand))
             {
                 RevealDealerHiddenCard();
                 BroadcastScores();
-                if (insuranceBet > 0)
+
+                bool playerBlackjack = IsBlackjack(playerHand);
+                float payout = 0f;
+                string msg;
+
+                // Страховка: ставка повертається + виграш 2:1 (разом x3).
+                if (insuranceBet > 0f) payout += insuranceBet * 3f;
+
+                if (playerBlackjack)
                 {
-                    float payout = insuranceBet * 3f;
-                    currentBalance += payout;
-                    FinishGame("Страховка виграла!");
+                    // Основна ставка - нічия (push).
+                    payout += bet1;
+                    msg = insuranceBet > 0f
+                        ? "Нічия по основній ставці. Страховка виграла!"
+                        : "Нічия (Блекджек у обох)";
                 }
                 else
                 {
-                    if (CalculateHandValue(playerHand) == 21)
-                    {
-                        currentBalance += currentBet;
-                        FinishGame("Нічия (Блекджек у обох)");
-                    }
-                    else FinishGame("У дилера Блекджек! Ви програли.");
+                    msg = insuranceBet > 0f
+                        ? "Страховка виграла! Основну ставку програно."
+                        : "У дилера Блекджек! Ви програли.";
                 }
+
+                currentBalance += payout;
+                FinishGame(msg);
             }
             else
             {
-                if (insuranceBet > 0) insuranceBet = 0f;
+                // Страховка програла (у дилера немає Блекджека).
+                insuranceBet = 0f;
                 CheckInitialBlackjack();
             }
+        }
+
+        // ------------------------------------------------------------------
+        // Перевірка Блекджека на старті
+        // ------------------------------------------------------------------
+
+        private bool IsBlackjack(List<CardData> hand)
+        {
+            return hand.Count == 2 && CalculateHandValue(hand) == 21;
         }
 
         private void CheckInitialBlackjack()
         {
             BroadcastScores();
-            if (CalculateHandValue(playerHand) == 21)
+
+            bool playerBJ = IsBlackjack(playerHand);
+            bool dealerBJ = IsBlackjack(dealerHand);
+            bool dealerPeeked = dealerPeeksOnTen && dealerHand[0].rank.GetBlackjackValue() == 10;
+
+            // Дилер дивиться закриту карту під десяткою
+            if (dealerPeeked && dealerBJ)
             {
                 RevealDealerHiddenCard();
                 BroadcastScores();
-                ResolveGame();
+                if (playerBJ)
+                {
+                    currentBalance += bet1;
+                    FinishGame("Нічия (Блекджек у обох)");
+                }
+                else FinishGame("У дилера Блекджек! Ви програли.");
+                return;
             }
-            else StartPlayerTurn();
+
+            // Природний Блекджек гравця
+            if (playerBJ)
+            {
+                RevealDealerHiddenCard();
+                BroadcastScores();
+                if (dealerBJ)
+                {
+                    currentBalance += bet1;
+                    FinishGame("Нічия (Блекджек у обох)");
+                }
+                else
+                {
+                    // ставка повертається + виграш за коефіцієнтом (3:2 -> x2.5)
+                    currentBalance += bet1 * (1f + blackjackPayoutRatio);
+                    FinishGame("Блекджек!");
+                }
+                return;
+            }
+
+            StartPlayerTurn();
         }
+
+        // ------------------------------------------------------------------
+        // Хід гравця
+        // ------------------------------------------------------------------
 
         private void StartPlayerTurn()
         {
@@ -202,45 +300,43 @@ namespace Blackjack
             UpdateTurnOptions();
         }
 
+        private float ActiveBet()
+        {
+            return activeHandIndex == 0 ? bet1 : bet2;
+        }
+
+        private List<CardData> ActiveHand()
+        {
+            return activeHandIndex == 0 ? playerHand : splitHand;
+        }
+
+        private Transform ActiveContainer()
+        {
+            if (activeHandIndex == 0) return isSplitMode ? splitLeftContainer : playerHandContainer;
+            return splitRightContainer;
+        }
+
         private void UpdateTurnOptions()
         {
-            List<CardData> currentHand;
-            if (activeHandIndex == 0) currentHand = playerHand;
-            else currentHand = splitHand;
-
+            List<CardData> currentHand = ActiveHand();
             int handValue = CalculateHandValue(currentHand);
             int count = currentHand.Count;
-            bool canDouble = false;
 
-            if (count == 2)
-            {
-                if (handValue >= 9)
-                    if (handValue <= 11) canDouble = true;
-            }
-
+            bool canDouble = count == 2 && handValue >= 9 && handValue <= 11;
             bool canSplit = !isSplitMode && count == 2 && playerHand[0].rank == playerHand[1].rank;
-            OnTurnOptionsUpdated?.Invoke(count, canSplit, canDouble, currentBalance, currentBet);
+
+            // Передаємо ставку активної руки, щоб UI правильно перевіряв, чи вистачає балансу
+            OnTurnOptionsUpdated?.Invoke(count, canSplit, canDouble, currentBalance, ActiveBet());
         }
 
         public void OnHitButton()
         {
             if (CurrentState != GameState.PlayerTurn) return;
 
-            if (activeHandIndex == 0)
-            {
-                Transform container;
-                if (isSplitMode) container = splitLeftContainer;
-                else container = playerHandContainer;
-                HitHand(playerHand, container, false);
-            }
-            else HitHand(splitHand, splitRightContainer, false);
-
+            HitHand(ActiveHand(), ActiveContainer(), false);
             BroadcastScores();
-            List<CardData> currentHand;
-            if (activeHandIndex == 0) currentHand = playerHand;
-            else currentHand = splitHand;
 
-            if (CalculateHandValue(currentHand) > 21) HandleHandEnd();
+            if (CalculateHandValue(ActiveHand()) > 21) HandleHandEnd();
             else UpdateTurnOptions();
         }
 
@@ -264,31 +360,36 @@ namespace Blackjack
         public void OnDoubleButton()
         {
             if (CurrentState != GameState.PlayerTurn) return;
-            if (currentBalance >= currentBet)
-            {
-                currentBalance -= currentBet;
-                currentBet += currentBet;
-                OnBalanceChanged?.Invoke(currentBalance, currentBet);
 
-                if (activeHandIndex == 0)
-                {
-                    Transform container;
-                    if (isSplitMode) container = splitLeftContainer;
-                    else container = playerHandContainer;
-                    HitHand(playerHand, container, false);
-                }
-                else HitHand(splitHand, splitRightContainer, false);
-                HandleHandEnd();
-            }
+            List<CardData> hand = ActiveHand();
+            int value = CalculateHandValue(hand);
+            if (hand.Count != 2 || value < 9 || value > 11) return;
+
+            float handBet = ActiveBet();
+            if (currentBalance < handBet) return;
+
+            // Подвоюється лише ставка активної руки
+            currentBalance -= handBet;
+            currentBet += handBet;
+            if (activeHandIndex == 0) bet1 += handBet;
+            else bet2 += handBet;
+            OnBalanceChanged?.Invoke(currentBalance, currentBet);
+
+            HitHand(hand, ActiveContainer(), false);
+            BroadcastScores();
+            HandleHandEnd();
         }
 
         public void OnSplitButton()
         {
             if (CurrentState != GameState.PlayerTurn) return;
-            if (currentBalance < currentBet) return;
+            if (isSplitMode) return;
+            if (playerHand.Count != 2 || playerHand[0].rank != playerHand[1].rank) return;
+            if (currentBalance < bet1) return;
 
-            currentBalance -= currentBet;
-            currentBet *= 2;
+            currentBalance -= bet1;
+            bet2 = bet1;
+            currentBet = bet1 + bet2;
             OnBalanceChanged?.Invoke(currentBalance, currentBet);
 
             isSplitMode = true;
@@ -316,13 +417,20 @@ namespace Blackjack
             foreach (var card in splitHand) CreateCardVisual(card, splitRightContainer, false);
         }
 
+        // ------------------------------------------------------------------
+        // Хід дилера та розрахунок
+        // ------------------------------------------------------------------
+
         private void StartDealerTurn()
         {
             ChangeState(GameState.DealerTurn);
             RevealDealerHiddenCard();
             BroadcastScores();
+
             bool hand1Bust = CalculateHandValue(playerHand) > 21;
-            bool hand2Bust = isSplitMode && (CalculateHandValue(splitHand) > 21);
+            bool hand2Bust = isSplitMode && CalculateHandValue(splitHand) > 21;
+
+            // Якщо всі руки програли перебором, дилеру тягнути карти не треба
             if ((!isSplitMode && hand1Bust) || (isSplitMode && hand1Bust && hand2Bust)) ResolveGame();
             else timer = actionDelay;
         }
@@ -348,22 +456,18 @@ namespace Blackjack
             BroadcastScores();
 
             int dScore = CalculateHandValue(dealerHand);
-            float betPerHand;
-            if (isSplitMode) betPerHand = currentBet / 2f;
-            else betPerHand = currentBet;
-
             float totalWin = 0f;
-            string msg = "";
+            string msg;
 
             int p1 = CalculateHandValue(playerHand);
             string r1 = GetResult(p1, dScore);
-            totalWin += CalculatePayout(r1, betPerHand);
+            totalWin += CalculatePayout(r1, bet1);
 
             if (isSplitMode)
             {
                 int p2 = CalculateHandValue(splitHand);
                 string r2 = GetResult(p2, dScore);
-                totalWin += CalculatePayout(r2, betPerHand);
+                totalWin += CalculatePayout(r2, bet2);
                 msg = $"1 рука - {r1}\n2 рука - {r2}";
             }
             else msg = r1;
@@ -374,9 +478,10 @@ namespace Blackjack
 
         private string GetResult(int p, int d)
         {
-            if (p > 21 || (d <= 21 && d > p)) return "ПРОГРАШ"; 
-            if (p == d) return "НІЧИЯ"; 
-            return "ПЕРЕМОГА"; 
+            if (p > 21) return "ПРОГРАШ";
+            if (d <= 21 && d > p) return "ПРОГРАШ";
+            if (p == d) return "НІЧИЯ";
+            return "ПЕРЕМОГА";
         }
 
         private float CalculatePayout(string res, float bet)

@@ -10,6 +10,7 @@
 /[Rr]ecordings/
 .utmp/
 *.log
+/[Aa]ssets/[Ss]ceneDependencyCache*
 
 # --- Documentation & Office ---
 *.pdf
@@ -37,6 +38,7 @@
 *.VC.db
 *.DotSettings.user
 *.pidb
+/[Aa]ssets/Plugins/Editor/JetBrains*
 
 # --- Unity Generated & Recovery ---
 sysinfo.txt
@@ -54,7 +56,10 @@ mono_crash.*
 /[Aa]ssets/AddressableAssetsData/*/*.bin*
 
 # --- Visual Scripting & Tests ---
-/[Aa]ssets/Unity.VisualScripting.Generated/*
+/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Flow/UnitOptions.db
+/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Flow/UnitOptions.db.meta
+/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Core/Property Providers
+/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Core/Property Providers.meta
 InitTestScene*.unity*
 /[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
 
@@ -70,6 +75,7 @@ Desktop.ini
 *.apk
 *.aab
 *.unitypackage
+*.unitypackage.meta
 *.exe
 *.app
 crashlytics-build.properties
